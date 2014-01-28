@@ -16,13 +16,15 @@ class AnimationFile:
         
         self.delimiter = None 
         self.infile = infile
-        self.header_row = 9999
+        self.header_info = []
+        self.header_row = 0
         self.column_names = None
+        self.formats = None
         self.df = pd.DataFrame()
         
         # get header info
         try:
-            indata = open(infile).readlines()
+            indata = open(infile).readlines()[0:100]
         except:
             raise(InputFileError(infile))
             
@@ -31,13 +33,14 @@ class AnimationFile:
         self.delimiter= dialect.delimiter
         
         # get header info
-        self.header_row=0
         for line in indata:
             if line.split(self.delimiter)[0]=='timestamp':
                 break
             else:
+                self.header_info.append(line)
                 self.header_row+=1
         self.column_names=indata[self.header_row].strip().split(self.delimiter)
+        self.formats = indata[self.header_row+1]
         
         # read animation file into pandas dataframe
         print "\nreading {0:s} into pandas dataframe...".format(self.infile)
@@ -50,7 +53,7 @@ class PeriodStatistics:
     def __init__(self,f):
         self.f = f
 
-    def Annual(self, ani_file):
+    def Annual(self, ani_file, format_line=False):
         print "\ncalculating annual statistics..."
         if ani_file.df.index[1].month == 10:
             # data are in water years; shift index to 1982
@@ -71,12 +74,16 @@ class PeriodStatistics:
         self.df_yr.index = ['{0}-09-30:00:00:00'.format(year) for year in self.df_yr.index]
         
         # write to output
-        outfile = '{0}animation.nhru'.format(ani_file.infile.split('animation')[0])
-        print "writing annual stats to {0}".format(outfile)
-        self.df_yr.to_csv('test.txt',sep=ani_file.delimiter,float_format='%.6e',index_label='year')
+        outfile = '{0}annual.animation.nhru'.format(ani_file.infile.split('animation')[0])
+        print "\twriting annual stats to {0}".format(outfile)
+        self.df_yr.to_csv('temp.txt',sep=ani_file.delimiter,float_format='%.6e',index_label='year')
         
+        # if specified, add format line to output file (simply copied from input)
+        if format_line:
+            self.apply_formatting_to_output(ani_file, 'temp.txt', outfile)
         
-    def Monthly(self, ani_file):
+    def Monthly(self, ani_file, format_line=False):
+    
         print "\ncalculating monthly statistics..."
         df_M_hru=ani_file.df.groupby([lambda x: x.month, lambda x: x.year, 'nhru']).agg(self.f)
 
@@ -95,11 +102,32 @@ class PeriodStatistics:
             df_month.index = [item[0] for item in df_month.index]
             df_month.index = ['{0}-09-30:00:00:00'.format(year) for year in df_month.index]
             
+            # write each month to output
             outfile = '{0}{1}.animation.nhru'.format(ani_file.infile.split('animation')[0],months[i])
-            print "writing {0} stats to {1}".format(months[i],outfile)
-            df_month.to_csv(outfile,sep=ani_file.delimiter,float_format='%.6e',index_label='year')
+            print "\twriting {0} stats to {1}".format(months[i],outfile)
+            df_month.to_csv('temp.txt',sep=ani_file.delimiter,float_format='%.6e',index_label='year')
             
-        datefmt = '%Y-09-30:00:00:00'
+            # if specified, add format line to output file (simply copied from input)
+            if format_line:
+                self.apply_formatting_to_output(ani_file, 'temp.txt', outfile)
+                
+    def apply_formatting_to_output(self, ani_file, outfile, formatted_outfile):
+        
+        # reopen output file, just to add in formatting line! (should only run this method if necessary)
+        with open(outfile,'r') as input_file:
+            with open(formatted_outfile,'w') as output:
+                output.write(ani_file.delimiter.join(ani_file.column_names)+'\n')
+                input_file.next()
+                output.write(ani_file.formats)
+                input=True
+                while input:
+                    try:
+                        output.write(input_file.next())
+                    except:
+                        input=False
+                        #break
+            output.close()
+        
         
 class InputFileError(Exception):
     def __init__(self,infile):
