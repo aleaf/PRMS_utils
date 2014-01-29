@@ -10,7 +10,7 @@ location of the raw PRMS animation output to process
 list of animation files to process, one per line
 
 ##### Operations
-<column name>,<operation> (one per line)
+column name, operation (one per line)
 
 operations are limited to those used by numpy/pandas:
 (see http://pandas.pydata.org/pandas-docs/dev/basics.html) 
