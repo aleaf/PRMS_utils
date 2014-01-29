@@ -1,7 +1,8 @@
+# example script to process multiple PRMS animation files using classes in PRMS_animation_classes
 
-import PRMS_animation_utils as prms
+import PRMS_animation_classes as prms
 
-configfile = 'process_PRMS_animation.in'
+configfile = 'EXAMPLE_process_PRMS_animation.in'
 
 input = prms.Input(configfile)
 c=0

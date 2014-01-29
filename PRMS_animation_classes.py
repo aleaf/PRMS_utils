@@ -1,8 +1,5 @@
-# -*- coding: utf-8 -*-
 """
-Created on Thu Jan 02 15:00:29 2014
-
-@author: aleaf
+Classes for post-processing of PRMS animation data
 """
 import os
 import pandas as pd
@@ -10,6 +7,10 @@ import csv
 
 
 class Input:
+    # this class parses the Input file, which contains information on
+    # - path to the raw PRMS output
+    # - a list of the PRMS animation files to process
+    # - a list of each column in the PRMS animation files and corresponding operation
 
     def __init__(self, configfile):
     
@@ -84,6 +85,11 @@ class PeriodStatistics:
         self.f = operations
 
     def Annual(self, ani_file, format_line=False):
+        # group data by year, using operations specified in config file
+        # ani_file: animation file object produced by AnimationFile class
+        # format_line (T/F): whether or not to include the format line (in between the header and the data) in the output
+        # format_line=True also renames the Date column to "timestamp," consistent with previous processed files
+        
         print "calculating annual statistics..."
         if ani_file.df.index[1].month == 10:
             # data are in water years; shift index to 1982
@@ -113,6 +119,10 @@ class PeriodStatistics:
             self.apply_formatting_to_output(ani_file, 'temp.txt', outfile)
         
     def Monthly(self, ani_file, format_line=False):
+        # group data by month, using operations specified in config file
+        # ani_file: animation file object produced by AnimationFile class
+        # format_line (T/F): whether or not to include the format line (in between the header and the data) in the output
+        # format_line=True also renames the Date column to "timestamp," consistent with previous processed files
     
         print "calculating monthly statistics..."
         df_M_hru=ani_file.df.groupby([lambda x: x.month, lambda x: x.year, 'nhru']).agg(self.f)
@@ -142,8 +152,8 @@ class PeriodStatistics:
                 self.apply_formatting_to_output(ani_file, 'temp.txt', outfile)
                 
     def apply_formatting_to_output(self, ani_file, outfile, formatted_outfile):
-        
         # reopen output file, just to add in formatting line! (should only run this method if necessary)
+        
         with open(outfile,'r') as input_file:
             with open(formatted_outfile,'w') as output:
                 output.write(ani_file.delimiter.join(ani_file.column_names)+'\n')
