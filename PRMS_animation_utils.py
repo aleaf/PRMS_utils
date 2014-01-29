@@ -9,6 +9,36 @@ import pandas as pd
 import csv
 
 
+class Input:
+
+    def __init__(self, configfile):
+    
+        self.configfile = configfile
+        self.input_files = list()
+        self.operations = dict()
+        
+        configdata = open(configfile).readlines()
+        config = False
+        inputpath = False
+        for line in configdata:
+            if 'input path' in line.lower():
+                inputpath=True
+                continue
+            if inputpath:
+                input_path = line.strip()
+                inputpath=False
+            if line.strip().endswith('.nhru'):
+                self.input_files.append(os.path.join(input_path, line.strip()))
+            if "operations------" in line.lower():
+                config = True
+            if config:
+                if line[0] == "#" or len(line.strip())==0:
+                    continue
+                else:
+                    var = line.strip().split(',')[0]
+                    self.operations[var] = [line.strip().split(',')[1]]
+    
+
 # object containing information on the PRMS animation file
 class AnimationFile:
     
@@ -43,30 +73,30 @@ class AnimationFile:
         self.formats = indata[self.header_row+1]
         
         # read animation file into pandas dataframe
-        print "\nreading {0:s} into pandas dataframe...".format(self.infile)
-        self.df = pd.read_csv(self.infile,sep=self.delimiter,header=self.header_row,skiprows=[self.header_row+1],index_col=0)
-        self.df.index = pd.to_datetime(self.df.index,format='%Y-%m-%d:%H:%M:%S')
+        print "reading {0:s} into pandas dataframe...".format(self.infile)
+        self.df = pd.read_csv(self.infile, sep=self.delimiter, header=self.header_row, skiprows=[self.header_row+1], index_col=0)
+        self.df.index = pd.to_datetime(self.df.index, format='%Y-%m-%d:%H:%M:%S')
 
         
 class PeriodStatistics:
 
-    def __init__(self,f):
-        self.f = f
+    def __init__(self, operations):
+        self.f = operations
 
     def Annual(self, ani_file, format_line=False):
-        print "\ncalculating annual statistics..."
+        print "calculating annual statistics..."
         if ani_file.df.index[1].month == 10:
             # data are in water years; shift index to 1982
-            ani_file.df = ani_file.df.shift(3,freq='MS')
+            ani_file.df = ani_file.df.shift(3, freq='MS')
             
-        df_yr_hru=ani_file.df.groupby([lambda x: x.year, 'nhru']).agg(self.f)
+        df_yr_hru = ani_file.df.groupby([lambda x: x.year, 'nhru']).agg(self.f)
 
         # flatten column names; preserve original order of variables
         df_yr_hru.columns=[c[0] for c in df_yr_hru.columns]
         self.df_yr=df_yr_hru[ani_file.df.columns].copy()
         
         # put index back for monthly analysis
-        ani_file.df = ani_file.df.shift(-3,freq='MS')
+        ani_file.df = ani_file.df.shift(-3, freq='MS')
         
         # remove hrus from index (they are also in the first column), and reformat to mimic original animation results
         datefmt = '%Y-09-30:00:00:00'
@@ -74,7 +104,7 @@ class PeriodStatistics:
         self.df_yr.index = ['{0}-09-30:00:00:00'.format(year) for year in self.df_yr.index]
         
         # write to output
-        outfile = '{0}annual.animation.nhru'.format(ani_file.infile.split('animation')[0])
+        outfile = '{0}annual.animation.nhru'.format(ani_file.infile.split('\\')[-1].split('animation')[0])
         print "\twriting annual stats to {0}".format(outfile)
         self.df_yr.to_csv('temp.txt',sep=ani_file.delimiter,float_format='%.6e',index_label='year')
         
@@ -84,7 +114,7 @@ class PeriodStatistics:
         
     def Monthly(self, ani_file, format_line=False):
     
-        print "\ncalculating monthly statistics..."
+        print "calculating monthly statistics..."
         df_M_hru=ani_file.df.groupby([lambda x: x.month, lambda x: x.year, 'nhru']).agg(self.f)
 
         # flatten column names; preserve original order of variables
@@ -103,7 +133,7 @@ class PeriodStatistics:
             df_month.index = ['{0}-09-30:00:00:00'.format(year) for year in df_month.index]
             
             # write each month to output
-            outfile = '{0}{1}.animation.nhru'.format(ani_file.infile.split('animation')[0],months[i])
+            outfile = '{0}{1}.animation.nhru'.format(ani_file.infile.split('\\')[-1].split('animation')[0],months[i])
             print "\twriting {0} stats to {1}".format(months[i],outfile)
             df_month.to_csv('temp.txt',sep=ani_file.delimiter,float_format='%.6e',index_label='year')
             

@@ -1,23 +1,23 @@
-# -*- coding: utf-8 -*-
-"""
-Created on Fri Jan 03 11:31:38 2014
 
-@author: aleaf
-"""
-import pandas as pd
 import PRMS_animation_utils as prms
 
-infile='D:\\ATLData\\PRMS_visualization\\cccma_cgcm3_1.20c3m.1981-2000.animation.nhru'
+configfile = 'process_PRMS_animation.in'
 
-# dictionary to determine annual aggregation of variables (e.g. whether mean or sum)
-f = {'nhru':['mean'], 'soil_moist':['mean'], 'recharge':['sum'], 'hru_ppt':['sum'], 'hru_rain':['sum'], 'hru_snow':['sum'], 'tminf':['mean'], 'tmaxf':['mean'], 'potet':['sum'], 'hru_actet':['sum'], 'pkwater_equiv':['max'], 'snowmelt':['sum'], 'hru_streamflow_out':['mean']}
+input = prms.Input(configfile)
+c=0
+for infile in input.input_files:
+    c+=1
+    print "\n{0} of {1}".format(c,len(input.input_files))
+    # dictionary to determine annual aggregation of variables (e.g. whether mean or sum)
+    #f = {'nhru':['mean'], 'soil_moist':['mean'], 'recharge':['sum'], 'hru_ppt':['sum'], 'hru_rain':['sum'], 'hru_snow':['sum'], 'tminf':['mean'], 'tmaxf':['mean'], 'potet':['sum'], 'hru_actet':['sum'], 'pkwater_equiv':['max'], 'snowmelt':['sum'], 'hru_streamflow_out':['mean']}
 
-# read PRMS animation file into object
-indata = prms.AnimationFile(infile)
+    # read PRMS animation file into object
+    indata = prms.AnimationFile(infile)
 
-# calculate period statistics (and write to output files)
-stats = prms.PeriodStatistics(f)
+    # calculate period statistics (and write to output files)
+    stats = prms.PeriodStatistics(input.operations)
 
-stats.Annual(indata, format_line=True)
+    stats.Annual(indata, format_line=True)
 
-stats.Monthly(indata, format_line=True)
+    stats.Monthly(indata, format_line=True)
+    
