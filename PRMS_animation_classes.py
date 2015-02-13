@@ -2,10 +2,34 @@
 Classes for post-processing of PRMS animation data
 """
 import os
+import numpy as np
 import pandas as pd
 from functools import partial
 import datetime as dt
 import csv
+
+
+def check_finite(df, file, errorfile):
+    """Identify any values in an array that are nans or +/- inf
+    """
+    nans = False
+    column_sums = np.sum(~np.isfinite(df))
+    if column_sums.sum() > 0:
+        nans = True
+        errorfile.write('{}:\n'.format(file))
+        errorfile.write('Number of non-finite by column:\n')
+        errorfile.write(column_sums.to_string())
+        errorfile.write('\nIndices of non-finite values:\n')
+        isnans = np.isnan(df)
+        inds = dict([(c, df.ix[isnans[c].values, c].index.tolist()) for c in df.columns])
+        for k, v in inds.iteritems():
+            if len(v) > 0:
+                errorfile.write('{}:'.format(k))
+                for i in v:
+                    errorfile.write(' {}'.format(i))
+                errorfile.write('\n')
+        errorfile.write('\n')
+    return nans
 
 
 class Input:
@@ -171,6 +195,9 @@ class hruStatistics:
 
             self.baseline = AnimationFile(baseline_file)
 
+        self.nans = False
+        self.error_file = open('hruStatistics_errors.txt', 'w')
+
     def hru_mean(self, dataframe, nyears=None):
         """Computes mean values for each hru, for each column (state variable)
 
@@ -229,12 +256,20 @@ class hruStatistics:
                 per_mean = self.hru_mean(period.df, nyears=nyears)
                 self.periods[pf].pct_diff = 100 * (per_mean - bl_mean) / bl_mean
                 self.periods[pf].means = per_mean
+                self.nans = check_finite(self.periods[pf].pct_diff,
+                                         '{}\n(in percent differences)'.format(pf), self.error_file)
 
         # otherwise process the single dataframe
         else:
             per_mean = self.hru_mean(self.period.df, nyears=nyears)
             self.period.pct_diff = 100 * (per_mean - bl_mean) / bl_mean
             self.period.means = per_mean
+            self.nans = check_finite(self.period.pct_diff,
+                                     '{}\n(in percent differences)'.format(self.period_files), self.error_file)
+
+        if self.nans:
+            print 'Warning, nan values found in percent differences. See hruStatistics_errors.txt'
+        self.error_file.close()
 
     def write_output(self, outdir):
 
@@ -248,12 +283,17 @@ class hruStatistics:
             for pf, period in self.periods.iteritems():
                 per_outpath = os.path.join(outdir, os.path.split(pf)[-1][:-4])
                 period.write_output(period.means, '{}hru_means.nhru'.format(per_outpath))
+
+                period.pct_diff.replace([np.inf, -np.inf], np.nan, inplace=True)
                 period.write_output(period.pct_diff, '{}hru_pct_diff.nhru'.format(per_outpath))
 
         else:
             per_outpath = os.path.join(outdir, os.path.split(self.period_files)[-1][:-4])
             self.period.write_output(self.period.means, '{}hru_means.nhru'.format(per_outpath))
+            self.period.pct_diff.replace([np.inf, -np.inf], np.nan, inplace=True)
             self.period.write_output(self.period.pct_diff, '{}hru_pct_diff.nhru'.format(per_outpath))
+
+
 
 
 class PeriodStatistics:
