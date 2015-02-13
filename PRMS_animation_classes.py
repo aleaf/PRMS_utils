@@ -179,7 +179,7 @@ class AnimationFile:
 
 class hruStatistics:
 
-    def __init__(self, period_files, baseline_file=None):
+    def __init__(self, period_files, baseline_file=None, error_file='hruStatistics_errors.txt'):
 
         self.period_files = period_files
         self.baseline_file = baseline_file
@@ -189,14 +189,13 @@ class hruStatistics:
             for pf in period_files:
                 self.periods[pf] = AnimationFile(pf)
         else:
-            self.period = AnimationFile(period_file)
+            self.period = AnimationFile(period_files)
 
         if baseline_file is not None:
-
             self.baseline = AnimationFile(baseline_file)
 
         self.nans = False
-        self.error_file = open('hruStatistics_errors.txt', 'w')
+        self.error_file = open(error_file, 'w')
 
     def hru_mean(self, dataframe, nyears=None):
         """Computes mean values for each hru, for each column (state variable)
@@ -268,29 +267,33 @@ class hruStatistics:
                                      '{}\n(in percent differences)'.format(self.period_files), self.error_file)
 
         if self.nans:
-            print 'Warning, nan values found in percent differences. See hruStatistics_errors.txt'
+            print 'Warning, nan values found in percent differences. See error_file.'
         self.error_file.close()
 
     def write_output(self, outdir):
 
-        if not os.path.isdir(outdir):
-            os.makedirs(outdir)
+        for dir in [outdir, outdir + '/hru_means', outdir + '/hru_pct_diff']:
+            if not os.path.isdir(dir):
+                os.makedirs(dir)
 
-        baseline_outpath = os.path.join(outdir, os.path.split(self.baseline_file)[-1][:-4])
+        baseline_outpath = os.path.join(outdir + '/hru_means', os.path.split(self.baseline_file)[-1][:-4])
         self.baseline.write_output(self.baseline.means, '{}hru_means.nhru'.format(baseline_outpath))
 
         if len(self.periods) > 0:
             for pf, period in self.periods.iteritems():
-                per_outpath = os.path.join(outdir, os.path.split(pf)[-1][:-4])
+                per_outpath = os.path.join(outdir + '/hru_means', os.path.split(pf)[-1][:-4])
                 period.write_output(period.means, '{}hru_means.nhru'.format(per_outpath))
 
                 period.pct_diff.replace([np.inf, -np.inf], np.nan, inplace=True)
+                per_outpath = os.path.join(outdir + '/hru_pct_diff', os.path.split(pf)[-1][:-4])
                 period.write_output(period.pct_diff, '{}hru_pct_diff.nhru'.format(per_outpath))
 
         else:
-            per_outpath = os.path.join(outdir, os.path.split(self.period_files)[-1][:-4])
+            per_outpath = os.path.join(outdir + '/hru_means', os.path.split(self.period_files)[-1][:-4])
             self.period.write_output(self.period.means, '{}hru_means.nhru'.format(per_outpath))
+
             self.period.pct_diff.replace([np.inf, -np.inf], np.nan, inplace=True)
+            per_outpath = os.path.join(outdir + '/hru_pct_diff', os.path.split(self.period_files)[-1][:-4])
             self.period.write_output(self.period.pct_diff, '{}hru_pct_diff.nhru'.format(per_outpath))
 
 
