@@ -3,6 +3,8 @@ Classes for post-processing of PRMS animation data
 """
 import os
 import pandas as pd
+from functools import partial
+import datetime as dt
 import csv
 
 
@@ -47,10 +49,11 @@ class AnimationFile:
         
         self.delimiter = None 
         self.infile = infile
-        self.header_info = []
+        self.header = []
         self.header_row = 0
+
         self.column_names = None
-        self.formats = None
+        self.formats_line = None
         self.df = pd.DataFrame()
         
         # get header info
@@ -68,17 +71,191 @@ class AnimationFile:
             if line.split(self.delimiter)[0]=='timestamp':
                 break
             else:
-                self.header_info.append(line)
+                self.header.append(line.strip())
                 self.header_row+=1
         self.column_names=indata[self.header_row].strip().split(self.delimiter)
-        self.formats = indata[self.header_row+1]
+        self.formats_line = indata[self.header_row+1]
         
         # read animation file into pandas dataframe
-        print "reading {0:s} into pandas dataframe...".format(self.infile)
+        print "reading {0:s}...".format(self.infile)
         self.df = pd.read_csv(self.infile, sep=self.delimiter, header=self.header_row, skiprows=[self.header_row+1], index_col=0)
         self.df.index = pd.to_datetime(self.df.index, format='%Y-%m-%d:%H:%M:%S')
 
-        
+    def parse_header(self):
+        fmt = {}
+
+        def fmt_col(column_width, precision, type, x):
+            fmt = '{:{width}.{precision}{type}}\t'.format(x, width=column_width-1,
+                                                          precision=precision, type=type)
+            return fmt
+
+        for i, line in enumerate(self.header):
+
+            l = line.strip().split(',')
+            variable = l[0].strip('# ')
+
+            # kludge! otherwise nhru prints in exponent notation
+            if variable == 'nhru':
+                type = 'f'
+            else:
+                type = 'E'
+
+            if 'FIELD_DECIMAL' in line:
+                column_width = int(l[-2])
+                precision = int(l[-1])
+                # use partial to make an individual function to format each column
+                # lambda x doesn't work, because of late binding closure
+                # (see http://docs.python-guide.org/en/latest/writing/gotchas/)
+                fmt[variable] = partial(fmt_col, column_width, precision, type)
+
+            elif 'DATETIME' in line:
+                fmt[variable] = ''.format
+            else:
+                continue
+        self.fmts = fmt
+
+
+    def write_output(self, dataframe, outfile):
+
+        print 'writing {}...'.format(outfile)
+        df = dataframe.copy()
+        if df.index.name not in df.columns:
+            # put index in as a column otherwise won't print properly
+            df.insert(0, df.index.name, df.index.values)
+
+        self.parse_header()
+
+        ofp = open(outfile, 'w')
+
+        # write the header; only write entries corresponding to columns in the dataframe
+        ofp.write('#\n# Begin DBF\n')
+        for c in df.columns:
+            headerline = [h for h in self.header if c in h][0] + '\n'
+            ofp.write(headerline)
+        ofp.write('#\n# End DBF\n#\n')
+
+        # write the column names
+        ofp.write('\t'.join(df.columns) + '\n')
+
+        # write the formatting stuff below the header (not even sure what this is)
+        # only include the formatting stuff corresponding to columns that are in the output dataframe
+        formats_line = self.formats_line.strip().split()
+        formats_line = [f for i, f in enumerate(formats_line) if self.column_names[i] in df.columns]
+        ofp.write('\t'.join(formats_line) + '\n')
+
+        # make list of output formatters consistent with dataframe columns
+        formatters = [self.fmts[c] for c in df.columns]
+
+        # now write the damn dataframe!
+        ofp.write(df.to_string(header=False, index=False, formatters=formatters))
+        ofp.close()
+
+
+
+
+class hruStatistics:
+
+    def __init__(self, period_files, baseline_file=None):
+
+        self.period_files = period_files
+        self.baseline_file = baseline_file
+        self.period = None
+        self.periods = {}
+        if isinstance(period_files, list):
+            for pf in period_files:
+                self.periods[pf] = AnimationFile(pf)
+        else:
+            self.period = AnimationFile(period_file)
+
+        if baseline_file is not None:
+
+            self.baseline = AnimationFile(baseline_file)
+
+    def hru_mean(self, dataframe, nyears=None):
+        """Computes mean values for each hru, for each column (state variable)
+
+        Parameters
+        ----------
+        dataframe : dataframe
+            Dataframe with datetime index, a column named 'nhru' with PRMS hru number,
+            and additional columns of PRMS state variables
+
+        nyears : int (optional)
+            Compute mean for last nyears of period.
+            (e.g. for neglecting a period of model "spin-up"
+
+        Returns
+        -------
+        A dataframe of mean values for each hru (rows), for each state variable (columns)
+        """
+        if nyears is not None:
+            startyear = dataframe.index[-1].year - nyears
+            df = dataframe.ix[dt.datetime(startyear, 1, 1):].copy()
+            print df.index
+        else:
+            df = dataframe.copy()
+        return df.groupby('nhru').mean()
+
+    def hru_mean_pct_diff(self, nyears=None):
+        """Computes percent differences in the state variable means for each hru.
+        Mean values are computed for the baseline_df and period_df using the hru_mean method.
+
+        Parameters
+        ----------
+        baseline_df : dataframe
+            Dataframe representing a baseline period,
+            with a datetime index, a column named 'nhru' with PRMS hru number,
+            and additional columns of PRMS state variables
+
+        period_df : dataframe
+            Dataframe representing a period to compare with baseline,
+            with a datetime index, a column named 'nhru' with PRMS hru number,
+            and additional columns of PRMS state variables
+
+        nyears : int (optional)
+            Compute mean for last nyears of period.
+            (e.g. for neglecting a period of model "spin-up"
+
+        Returns
+        -------
+        A dataframe of percent differences for each hru (rows), for each state variable (columns)
+        """
+        bl_mean = self.hru_mean(self.baseline.df, nyears=nyears)
+        self.baseline.means = bl_mean
+
+        # if a list of period files was supplied, process all of the dataframes
+        if len(self.periods) > 0:
+            for pf, period in self.periods.iteritems():
+                per_mean = self.hru_mean(period.df, nyears=nyears)
+                self.periods[pf].pct_diff = 100 * (per_mean - bl_mean) / bl_mean
+                self.periods[pf].means = per_mean
+
+        # otherwise process the single dataframe
+        else:
+            per_mean = self.hru_mean(self.period.df, nyears=nyears)
+            self.period.pct_diff = 100 * (per_mean - bl_mean) / bl_mean
+            self.period.means = per_mean
+
+    def write_output(self, outdir):
+
+        if not os.path.isdir(outdir):
+            os.makedirs(outdir)
+
+        baseline_outpath = os.path.join(outdir, os.path.split(self.baseline_file)[-1][:-4])
+        self.baseline.write_output(self.baseline.means, '{}hru_means.nhru'.format(baseline_outpath))
+
+        if len(self.periods) > 0:
+            for pf, period in self.periods.iteritems():
+                per_outpath = os.path.join(outdir, os.path.split(pf)[-1][:-4])
+                period.write_output(period.means, '{}hru_means.nhru'.format(per_outpath))
+                period.write_output(period.pct_diff, '{}hru_pct_diff.nhru'.format(per_outpath))
+
+        else:
+            per_outpath = os.path.join(outdir, os.path.split(self.period_files)[-1][:-4])
+            self.period.write_output(self.period.means, '{}hru_means.nhru'.format(per_outpath))
+            self.period.write_output(self.period.pct_diff, '{}hru_pct_diff.nhru'.format(per_outpath))
+
+
 class PeriodStatistics:
 
     def __init__(self, operations):
@@ -158,7 +335,7 @@ class PeriodStatistics:
             with open(formatted_outfile,'w') as output:
                 output.write(ani_file.delimiter.join(ani_file.column_names)+'\n')
                 input_file.next()
-                output.write(ani_file.formats)
+                output.write(ani_file.format_line)
                 input=True
                 while input:
                     try:
